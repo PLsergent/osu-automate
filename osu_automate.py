@@ -3,6 +3,7 @@ from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
+import argparse
 import time
 import ntpath
 import os
@@ -33,7 +34,7 @@ class OsuHandler(PatternMatchingEventHandler):
     def send_song_to_drive(self, path):   
         metadata = {
             "name": ntpath.basename(path),
-            "parents": ["1TibAGp-Y_9AWQKfZoWW3zbx0yNFHidJC"] # Parent folder id
+            "parents": [args.google_drive_folder_id] # Parent folder id
         }
 
         media = MediaFileUpload(path, mimetype='application/octet-stream')
@@ -47,16 +48,16 @@ class StartupCheck:
         self.gdrive_service = service
 
     def check_songs_on_startup(self):
-        response_data = self.gdrive_service.files().list(q="parents='1TibAGp-Y_9AWQKfZoWW3zbx0yNFHidJC'").execute()
+        response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
 
         list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song id
-        list_local  = [file.split(" ")[0] for file in os.listdir("/home/psergent/osu/")] # TODO : pass to args
+        list_local  = [file.split(" ")[0] for file in os.listdir(args.osu_songs_folder)] # TODO : pass to args
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
             if remote[1].split(" ")[0] not in list_local:
                 script_path = os.getcwd()
-                os.chdir("/home/psergent/osu/")
+                os.chdir(args.osu_songs_folder)
                 
                 file_id = remote[0]
                 request = self.gdrive_service.files().get_media(fileId=file_id)
@@ -67,9 +68,16 @@ class StartupCheck:
 
                 os.chdir(script_path)
 
+
 if __name__ == "__main__":
     
-    folder = "/home/psergent/Downloads/" # TODO : pass to args
+    parser = argparse.ArgumentParser(description='osu! songs remote storage automation.')
+    parser.add_argument("download_folder", help="provide default download folder", type=str)
+    parser.add_argument("osu_songs_folder", help="provide osu songs folder", type=str)
+    parser.add_argument("google_drive_folder_id", help="provide google drive folder id where songs are going to be stored", type=str)
+    args = parser.parse_args()
+
+    folder = args.download_folder
     pattern = ["*.osk", "*.osz"]
     google_authenticator = GoogleAuth()
     gdrive_service = google_authenticator.service
