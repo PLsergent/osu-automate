@@ -10,9 +10,9 @@ class GoogleAuth:
     def __init__(self):
         self.scopes =  ['https://www.googleapis.com/auth/drive']
         self.creds = None
-        self.service = self.authenticate()
         self.flow = Flow.from_client_secrets_file(
                     'credentials.json', self.scopes, redirect_uri='urn:ietf:wg:oauth:2.0:oob')
+        self.service = self.authenticate() 
 
     def authenticate(self):
         if os.path.exists('token.json'):
