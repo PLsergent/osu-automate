@@ -8,6 +8,7 @@ import time
 import ntpath
 import os
 import io
+import subprocess
 
 
 class OsuHandler(PatternMatchingEventHandler):
@@ -20,11 +21,6 @@ class OsuHandler(PatternMatchingEventHandler):
         )
         self.gdrive_service = service
         print("Start watching for osu! files...")
-
-    def on_created(self, event):
-        print(f"hey, {event.src_path} has been created!")
-        # os.startfile(event.src_path) > TODO: open file automatically
-        self.send_song_to_drive(event.src_path)
 
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
@@ -57,15 +53,20 @@ class StartupCheck:
         for remote in list_remote:
             if remote[1].split(" ")[0] not in list_local:
                 script_path = os.getcwd()
-                os.chdir(args.osu_songs_folder)
+                os.chdir(args.download_folder)
                 
                 file_id = remote[0]
-                request = self.gdrive_service.files().get_media(fileId=file_id)
-                fh = io.FileIO(remote[1], 'wb')
+                request = self.gdrive_service.files().export_media(fileId=file_id, mimeType='application/x-zip')
+                fh = io.BytesIO()
                 print(f"Downloading {remote[1]}...")
                 MediaIoBaseDownload(fh, request)
-                print("Done")
 
+                with open(remote[1], "wb") as outfile:
+                    # Copy the BytesIO stream to the output file
+                    outfile.write(fh.getbuffer())
+                print("Done")
+                print(os.getcwd())
+                subprocess.run(['open', remote[1]], check=True)
                 os.chdir(script_path)
 
 
