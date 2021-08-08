@@ -21,17 +21,20 @@ class OsuHandler(PatternMatchingEventHandler):
         self.gdrive_service = service
         print("Start watching for osu! files...")
 
+    def init(self):
+        pass
+
     def on_created(self, event):
         print(f"hey, {event.src_path} has been created!")
         os.startfile(event.dest_path, 'open')
-        self.send_song_to_drive(event.src_path)
+        self.upload_song_to_drive(event.src_path)
 
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
         os.startfile(event.dest_path, 'open')
-        self.send_song_to_drive(event.dest_path)
+        self.upload_song_to_drive(event.dest_path)
 
-    def send_song_to_drive(self, path):
+    def upload_song_to_drive(self, path):
         filename = ntpath.basename(path)
 
         response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
@@ -56,31 +59,33 @@ class StartupCheck:
     def __init__(self, service):
         self.gdrive_service = service
 
+    def download_songs(self, remote):
+        file_id = remote[0]
+        request = self.gdrive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        print(f"Downloading {remote[1]}...")
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+            print("Download %d%%." % int(status.progress() * 100))
+
+        with io.open(remote[1], 'wb') as f:
+            fh.seek(0)
+            f.write(fh.read())
+
     def check_songs_on_startup(self):
         response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
 
         list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song drive id
-        list_local  = [file.split(" ")[0] for file in os.listdir(args.osu_songs_folder)]
+        list_local  = [dir for dir in os.listdir(args.osu_songs_folder)]
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
-            if remote[1].split(" ")[0] not in list_local:
+            if remote[1].split(".")[0] not in list_local:
                 script_path = os.getcwd()
                 os.chdir(args.download_folder)
-                
-                file_id = remote[0]
-                request = self.gdrive_service.files().get_media(fileId=file_id)
-                fh = io.BytesIO()
-                print(f"Downloading {remote[1]}...")
-                downloader = MediaIoBaseDownload(fh, request)
-                done = False
-                while done is False:
-                    status, done = downloader.next_chunk()
-                    print("Download %d%%." % int(status.progress() * 100))
-
-                with io.open(remote[1], 'wb') as f:
-                    fh.seek(0)
-                    f.write(fh.read())
+                self.download_songs(remote)
                 print("Done")
                 os.startfile(remote[1], 'open')
                 # shutil.move(remote[1], args.osu_songs_folder)
@@ -93,6 +98,7 @@ if __name__ == "__main__":
     parser.add_argument("download_folder", help="provide default download folder", type=str)
     parser.add_argument("osu_songs_folder", help="provide osu songs folder", type=str)
     parser.add_argument("google_drive_folder_id", help="provide google drive folder id where songs are going to be stored", type=str)
+    parser.add_argument("--init", help="retrieve all maps from Songs folder to convert them to .osz and upload them to the cloud")
     args = parser.parse_args()
 
     folder = args.download_folder
@@ -103,6 +109,11 @@ if __name__ == "__main__":
     startup = StartupCheck(gdrive_service).check_songs_on_startup()
 
     event_handler = OsuHandler(pattern, gdrive_service)
+
+    if args.init:
+        event_handler.init()
+        exit(0)
+
     observer = Observer()
     observer.schedule(event_handler, folder, recursive=True)
 
