@@ -1,4 +1,5 @@
 from google_auth import GoogleAuth
+from get_config import *
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
@@ -7,7 +8,7 @@ import argparse
 import io
 import ntpath
 import os
-import psutil   
+import psutil
 import time
 
 
@@ -40,17 +41,17 @@ class OsuHandler(PatternMatchingEventHandler):
         Check download folder when app starts, upload and open .osz
         Used if you download songs without having the game opened and if you didn't open them
         '''
-        list_download_folder  = [dir for dir in os.listdir(args.download_folder)]
+        list_download_folder  = [dir for dir in os.listdir(DOWNLOAD_FOLDER)]
 
         for file in list_download_folder:
             if file.endswith(".osz"):
-                self.upload_song_to_drive(os.path.join(args.download_folder, file))
-                os.startfile(os.path.join(args.download_folder, file), 'open')
+                self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
+                os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')
 
     def upload_song_to_drive(self, path):
         filename = ntpath.basename(path)
 
-        response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
+        response_data = self.gdrive_service.files().list(q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'").execute()
         list_remote = [data['name'] for data in response_data['files']]
 
         if filename in list_remote:
@@ -58,7 +59,7 @@ class OsuHandler(PatternMatchingEventHandler):
         else:
             metadata = {
                 "name": filename,
-                "parents": [args.google_drive_folder_id] # Parent folder id
+                "parents": [GOOGLE_DRIVE_FOLDER_ID] # Parent folder id
             }
 
             media = MediaFileUpload(path, mimetype='application/octet-stream')
@@ -92,42 +93,40 @@ class StartupCheck:
         Check if new songs has been added to the cloud
         If yes, we download them : OsuHandler.check_download_folder will then open them
         '''
-        response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
+        response_data = self.gdrive_service.files().list(q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'").execute()
 
         list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song drive id
-        list_local  = [dir for dir in os.listdir(args.osu_songs_folder)]
+        list_local  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)]
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
             song_name = remote[1].replace("(Cut Ver.).osz", "(Cut Ver).osz")
             if song_name.split(".osz")[0] not in list_local:
                 script_path = os.getcwd()
-                os.chdir(args.download_folder)
+                os.chdir(DOWNLOAD_FOLDER)
                 self.download_songs(remote)
                 print("Done")
                 os.chdir(script_path)
 
 
 if __name__ == "__main__":
-    
+
+        
     parser = argparse.ArgumentParser(description='osu! songs remote storage automation.')
-    parser.add_argument("download_folder", help="provide default download folder", type=str)
-    parser.add_argument("osu_songs_folder", help="provide osu songs folder", type=str)
-    parser.add_argument("google_drive_folder_id", help="provide google drive folder id where songs are going to be stored", type=str)
     parser.add_argument("--init", help="retrieve all maps from Songs folder to convert them to .osz and upload them to the cloud")
     args = parser.parse_args()
 
+    if args.init:
+            
+            exit(0)
+
     def startApp():
-        folder = args.download_folder
+        folder = DOWNLOAD_FOLDER
         pattern = ["*.osz"]
         google_authenticator = GoogleAuth()
         gdrive_service = google_authenticator.service
 
         event_handler = OsuHandler(pattern, gdrive_service)
-
-        if args.init:
-            event_handler.init()
-            exit(0)
 
         StartupCheck(gdrive_service).check_songs_on_startup()
 
