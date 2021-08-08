@@ -4,10 +4,11 @@ from watchdog.events import PatternMatchingEventHandler
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 import argparse
-import time
+import io
 import ntpath
 import os
-import io
+import psutil   
+import time
 
 
 class OsuHandler(PatternMatchingEventHandler):
@@ -26,13 +27,25 @@ class OsuHandler(PatternMatchingEventHandler):
 
     def on_created(self, event):
         print(f"hey, {event.src_path} has been created!")
-        os.startfile(event.dest_path, 'open')
         self.upload_song_to_drive(event.src_path)
+        os.startfile(event.dest_path, 'open')
 
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
-        os.startfile(event.dest_path, 'open')
         self.upload_song_to_drive(event.dest_path)
+        # os.startfile(event.dest_path, 'open')
+
+    def check_download_folder(self):
+        '''
+        Check download folder when app starts, upload and open .osz
+        Used if you download songs without having the game opened and if you didn't open them
+        '''
+        list_download_folder  = [dir for dir in os.listdir(args.download_folder)]
+
+        for file in list_download_folder:
+            if file.endswith(".osz"):
+                self.upload_song_to_drive(os.path.join(args.download_folder, file))
+                os.startfile(os.path.join(args.download_folder, file), 'open')
 
     def upload_song_to_drive(self, path):
         filename = ntpath.basename(path)
@@ -41,7 +54,7 @@ class OsuHandler(PatternMatchingEventHandler):
         list_remote = [data['name'] for data in response_data['files']]
 
         if filename in list_remote:
-            print("Already in cloud...")
+            print(f"{filename} already in cloud...")
         else:
             metadata = {
                 "name": filename,
@@ -52,7 +65,7 @@ class OsuHandler(PatternMatchingEventHandler):
             self.gdrive_service.files().create(body=metadata,
                                         media_body=media,
                                         fields='id').execute()
-            print("Uploaded to cloud.")
+            print(f"{filename} uploaded to cloud.")
 
     
 class StartupCheck:
@@ -75,6 +88,10 @@ class StartupCheck:
             f.write(fh.read())
 
     def check_songs_on_startup(self):
+        '''
+        Check if new songs has been added to the cloud
+        If yes, we download them : OsuHandler.check_download_folder will then open them
+        '''
         response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
 
         list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song drive id
@@ -82,13 +99,12 @@ class StartupCheck:
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
-            if remote[1].split(".")[0] not in list_local:
+            song_name = remote[1].replace("(Cut Ver.).osz", "(Cut Ver).osz")
+            if song_name.split(".osz")[0] not in list_local:
                 script_path = os.getcwd()
                 os.chdir(args.download_folder)
                 self.download_songs(remote)
                 print("Done")
-                os.startfile(remote[1], 'open')
-                # shutil.move(remote[1], args.osu_songs_folder)
                 os.chdir(script_path)
 
 
@@ -101,35 +117,51 @@ if __name__ == "__main__":
     parser.add_argument("--init", help="retrieve all maps from Songs folder to convert them to .osz and upload them to the cloud")
     args = parser.parse_args()
 
-    folder = args.download_folder
-    pattern = ["*.osz"]
-    google_authenticator = GoogleAuth()
-    gdrive_service = google_authenticator.service
+    def startApp():
+        folder = args.download_folder
+        pattern = ["*.osz"]
+        google_authenticator = GoogleAuth()
+        gdrive_service = google_authenticator.service
 
-    startup = StartupCheck(gdrive_service).check_songs_on_startup()
+        event_handler = OsuHandler(pattern, gdrive_service)
 
-    event_handler = OsuHandler(pattern, gdrive_service)
+        if args.init:
+            event_handler.init()
+            exit(0)
 
-    if args.init:
-        event_handler.init()
-        exit(0)
+        StartupCheck(gdrive_service).check_songs_on_startup()
 
-    observer = Observer()
-    observer.schedule(event_handler, folder, recursive=True)
+        event_handler.check_download_folder()
 
-    observer.start()
+        observer = Observer()
+        observer.schedule(event_handler, folder, recursive=True)
 
-    try:
-        timer = 0
-        while True:
-            time.sleep(1)
-            timer = timer + 1
+        observer.start()
 
-            if timer >= 3599:
-                google_authenticator = GoogleAuth()
-                gdrive_service = google_authenticator.service
-                event_handler.gdrive_service = gdrive_service
-                timer = 0
-    except KeyboardInterrupt:
-        observer.stop()
-        observer.join()
+        try:
+            timer = 0
+            while True:
+                time.sleep(1)
+                timer = timer + 1
+
+                if timer >= 3599:
+                    google_authenticator = GoogleAuth()
+                    gdrive_service = google_authenticator.service
+                    event_handler.gdrive_service = gdrive_service
+                    timer = 0
+
+                if "osu!.exe" not in [p.name() for p in psutil.process_iter()]:
+                    observer.stop()
+                    observer.join()
+                    print("osu! has stopped.")
+                    break
+                    
+        except KeyboardInterrupt:
+            observer.stop()
+            observer.join()
+    
+    while True:
+        time.sleep(1)
+        if "osu!.exe" in [p.name() for p in psutil.process_iter()]:
+            print("osu! has been launched.")
+            startApp()
