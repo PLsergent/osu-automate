@@ -9,6 +9,7 @@ import io
 import ntpath
 import os
 import psutil
+import shutil
 import time
 
 
@@ -34,19 +35,24 @@ class OsuHandler(PatternMatchingEventHandler):
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
         self.upload_song_to_drive(event.dest_path)
-        # os.startfile(event.dest_path, 'open')
+        os.startfile(event.dest_path, 'open')
 
     def check_download_folder(self):
         '''
         Check download folder when app starts, upload and open .osz
         Used if you download songs without having the game opened and if you didn't open them
+        Also used after --init
         '''
         list_download_folder  = [dir for dir in os.listdir(DOWNLOAD_FOLDER)]
 
         for file in list_download_folder:
             if file.endswith(".osz"):
+                print(file)
                 self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
-                os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')
+                if not args.init and not args.no_open:
+                    os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')
+                else:
+                    os.remove(os.path.join(DOWNLOAD_FOLDER, file))
 
     def upload_song_to_drive(self, path):
         filename = ntpath.basename(path)
@@ -110,15 +116,26 @@ class StartupCheck:
 
 
 if __name__ == "__main__":
-
         
     parser = argparse.ArgumentParser(description='osu! songs remote storage automation.')
-    parser.add_argument("--init", help="retrieve all maps from Songs folder to convert them to .osz and upload them to the cloud")
+    parser.add_argument("--init", action="store_true", help="retrieve all maps from Songs folder to convert them to .osz and upload them to the cloud")
+    parser.add_argument("--no-open", action="store_true", help="doesn't open map when uploaded to cloud - to use when error to upload file to cloud")
     args = parser.parse_args()
 
     if args.init:
-            
-            exit(0)
+        count = 0
+        list_osu_songs  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)]
+
+        for folder in list_osu_songs:
+            # Compress folders into zip files
+            src = os.path.join(OSU_SONGS_FOLDER, folder)
+            # Rename to .osz
+            dest = os.path.join(DOWNLOAD_FOLDER, folder)
+
+            shutil.make_archive(dest, 'zip', src)
+            shutil.move(f"{dest}.zip", f"{dest}.osz")
+            count += 1
+            print(f"{count}/{len(list_osu_songs)} -- {ntpath.basename(dest)} has been exported to .osz")
 
     def startApp():
         folder = DOWNLOAD_FOLDER
