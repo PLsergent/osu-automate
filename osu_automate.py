@@ -11,6 +11,8 @@ import os
 import psutil
 import shutil
 import time
+import sys
+import winshell
 
 
 class OsuHandler(PatternMatchingEventHandler):
@@ -24,18 +26,19 @@ class OsuHandler(PatternMatchingEventHandler):
         self.gdrive_service = service
         print("Start watching for osu! files...")
 
-    def init(self):
-        pass
-
     def on_created(self, event):
         print(f"hey, {event.src_path} has been created!")
-        self.upload_song_to_drive(event.src_path)
+        shutil.copy(event.src_path, ntpath.basename(event.src_path))
         os.startfile(event.dest_path, 'open')
+        self.upload_song_to_drive(ntpath.basename(event.src_path))
+        os.remove(ntpath.basename(event.src_path))
 
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
-        self.upload_song_to_drive(event.dest_path)
+        shutil.copy(event.dest_path, ntpath.basename(event.dest_path))
         os.startfile(event.dest_path, 'open')
+        self.upload_song_to_drive(ntpath.basename(event.dest_path))
+        os.remove(ntpath.basename(event.dest_path))
 
     def check_download_folder(self):
         '''
@@ -102,12 +105,12 @@ class StartupCheck:
         response_data = self.gdrive_service.files().list(q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'").execute()
 
         list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song drive id
-        list_local  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)]
+        list_local  = [dir.split(" ")[0] for dir in os.listdir(OSU_SONGS_FOLDER)]
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
-            song_name = remote[1].replace("(Cut Ver.).osz", "(Cut Ver).osz")
-            if song_name.split(".osz")[0] not in list_local:
+            song_name = remote[1]
+            if song_name.split(" ")[0] not in list_local:
                 script_path = os.getcwd()
                 os.chdir(DOWNLOAD_FOLDER)
                 self.download_songs(remote)
@@ -176,6 +179,7 @@ if __name__ == "__main__":
             observer.stop()
             observer.join()
     
+    print("Application ready, waiting for osu! to start...")
     while True:
         time.sleep(1)
         if "osu!.exe" in [p.name() for p in psutil.process_iter()]:

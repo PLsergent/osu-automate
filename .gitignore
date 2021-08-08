@@ -1,1 +1,6 @@
 *.json
+dist/
+build/
+*.pyc
+__pycache__/
+*.spec

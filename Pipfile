@@ -12,6 +12,8 @@ tabulate = "*"
 pydrive = "*"
 psutil = "*"
 pyyaml = "*"
+winshell = "*"
+pywin32 = "*"
 
 [dev-packages]
 
