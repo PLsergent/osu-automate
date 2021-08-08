@@ -56,17 +56,21 @@ class StartupCheck:
                 os.chdir(args.download_folder)
                 
                 file_id = remote[0]
-                request = self.gdrive_service.files().export_media(fileId=file_id, mimeType='application/x-zip')
+                request = self.gdrive_service.files().get_media(fileId=file_id)
                 fh = io.BytesIO()
                 print(f"Downloading {remote[1]}...")
-                MediaIoBaseDownload(fh, request)
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while done is False:
+                    status, done = downloader.next_chunk()
+                    print("Download %d%%." % int(status.progress() * 100))
 
-                with open(remote[1], "wb") as outfile:
-                    # Copy the BytesIO stream to the output file
-                    outfile.write(fh.getbuffer())
+                with io.open(remote[1], 'wb') as f:
+                    fh.seek(0)
+                    f.write(fh.read())
                 print("Done")
                 print(os.getcwd())
-                subprocess.run(['open', remote[1]], check=True)
+                # subprocess.run(['open', remote[1]], check=True)
                 os.chdir(script_path)
 
 
