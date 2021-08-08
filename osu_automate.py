@@ -8,7 +8,6 @@ import time
 import ntpath
 import os
 import io
-import subprocess
 
 
 class OsuHandler(PatternMatchingEventHandler):
@@ -22,21 +21,35 @@ class OsuHandler(PatternMatchingEventHandler):
         self.gdrive_service = service
         print("Start watching for osu! files...")
 
+    def on_created(self, event):
+        print(f"hey, {event.src_path} has been created!")
+        os.startfile(event.dest_path, 'open')
+        self.send_song_to_drive(event.src_path)
+
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
-        # os.startfile(event.dest_path) > TODO: open file automatically
+        os.startfile(event.dest_path, 'open')
         self.send_song_to_drive(event.dest_path)
 
-    def send_song_to_drive(self, path):   
-        metadata = {
-            "name": ntpath.basename(path),
-            "parents": [args.google_drive_folder_id] # Parent folder id
-        }
+    def send_song_to_drive(self, path):
+        filename = ntpath.basename(path)
 
-        media = MediaFileUpload(path, mimetype='application/octet-stream')
-        self.gdrive_service.files().create(body=metadata,
-                                    media_body=media,
-                                    fields='id').execute()
+        response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
+        list_remote = [data['name'] for data in response_data['files']]
+
+        if filename in list_remote:
+            print("Already in cloud...")
+        else:
+            metadata = {
+                "name": filename,
+                "parents": [args.google_drive_folder_id] # Parent folder id
+            }
+
+            media = MediaFileUpload(path, mimetype='application/octet-stream')
+            self.gdrive_service.files().create(body=metadata,
+                                        media_body=media,
+                                        fields='id').execute()
+            print("Uploaded to cloud.")
 
     
 class StartupCheck:
@@ -46,8 +59,8 @@ class StartupCheck:
     def check_songs_on_startup(self):
         response_data = self.gdrive_service.files().list(q=f"parents='{args.google_drive_folder_id}'").execute()
 
-        list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song id
-        list_local  = [file.split(" ")[0] for file in os.listdir(args.osu_songs_folder)] # TODO : pass to args
+        list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song drive id
+        list_local  = [file.split(" ")[0] for file in os.listdir(args.osu_songs_folder)]
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
@@ -69,8 +82,8 @@ class StartupCheck:
                     fh.seek(0)
                     f.write(fh.read())
                 print("Done")
-                print(os.getcwd())
-                # subprocess.run(['open', remote[1]], check=True)
+                os.startfile(remote[1], 'open')
+                # shutil.move(remote[1], args.osu_songs_folder)
                 os.chdir(script_path)
 
 
@@ -83,7 +96,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     folder = args.download_folder
-    pattern = ["*.osk", "*.osz"]
+    pattern = ["*.osz"]
     google_authenticator = GoogleAuth()
     gdrive_service = google_authenticator.service
 
@@ -101,8 +114,10 @@ if __name__ == "__main__":
             time.sleep(1)
             timer = timer + 1
 
-            if timer > 3600:
-                
+            if timer >= 3599:
+                google_authenticator = GoogleAuth()
+                gdrive_service = google_authenticator.service
+                event_handler.gdrive_service = gdrive_service
                 timer = 0
     except KeyboardInterrupt:
         observer.stop()
