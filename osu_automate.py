@@ -12,7 +12,6 @@ import psutil
 import shutil
 import time
 import sys
-import winshell
 
 
 class OsuHandler(PatternMatchingEventHandler):
@@ -26,19 +25,29 @@ class OsuHandler(PatternMatchingEventHandler):
         self.gdrive_service = service
         print("Start watching for osu! files...")
 
-    def on_created(self, event):
-        print(f"hey, {event.src_path} has been created!")
-        shutil.copy(event.src_path, ntpath.basename(event.src_path))
-        os.startfile(event.dest_path, 'open')
-        self.upload_song_to_drive(ntpath.basename(event.src_path))
-        os.remove(ntpath.basename(event.src_path))
-
     def on_moved(self, event):
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
         shutil.copy(event.dest_path, ntpath.basename(event.dest_path))
         os.startfile(event.dest_path, 'open')
         self.upload_song_to_drive(ntpath.basename(event.dest_path))
         os.remove(ntpath.basename(event.dest_path))
+
+    def get_all_files(self):
+        token = ""
+        results = []
+        key = "nextPageToken"
+        while True:
+            response_data = self.gdrive_service.files().list(
+                    q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'",
+                    pageSize=100,
+                    pageToken=token
+                ).execute()
+            results += response_data["files"]
+            if key in response_data:
+                token = response_data[key]
+            else:
+                break
+        return results
 
     def check_download_folder(self):
         '''
@@ -52,16 +61,17 @@ class OsuHandler(PatternMatchingEventHandler):
             if file.endswith(".osz"):
                 print(file)
                 self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
-                if not args.init and not args.no_open:
-                    os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')
+                if args.init or args.no_open:
+                    shutil.move(os.path.join(DOWNLOAD_FOLDER, file), os.path.join(OSU_SONGS_FOLDER, file))
+                    print(f"{file} has been moved to songs folder, press f5 on osu! to get it")
                 else:
-                    os.remove(os.path.join(DOWNLOAD_FOLDER, file))
+                    os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')                   
 
     def upload_song_to_drive(self, path):
         filename = ntpath.basename(path)
 
-        response_data = self.gdrive_service.files().list(q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'").execute()
-        list_remote = [data['name'] for data in response_data['files']]
+        response_data = self.get_all_files()
+        list_remote = [data['name'] for data in response_data]
 
         if filename in list_remote:
             print(f"{filename} already in cloud...")
@@ -82,6 +92,23 @@ class StartupCheck:
     def __init__(self, service):
         self.gdrive_service = service
 
+    def get_all_files(self):
+        token = ""
+        results = []
+        key = "nextPageToken"
+        while True:
+            response_data = self.gdrive_service.files().list(
+                    q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'",
+                    pageSize=100,
+                    pageToken=token
+                ).execute()
+            results += response_data["files"]
+            if key in response_data:
+                token = response_data[key]
+            else:
+                break
+        return results
+
     def download_songs(self, remote):
         file_id = remote[0]
         request = self.gdrive_service.files().get_media(fileId=file_id)
@@ -97,14 +124,31 @@ class StartupCheck:
             fh.seek(0)
             f.write(fh.read())
 
+    def delete_duplicate_songs(self):
+        results = self.get_all_files()
+
+        removed_item = []
+        for item in results:
+            if item in removed_item:
+                continue
+            check_list = results
+            check_list.remove(item)
+
+            for check in check_list:
+                if item['name'] == check['name']:
+                    removed_item.append(check)
+                    self.gdrive_service.files().delete(fileId=check['id']).execute()
+                    print(f"{check['name']} duplicate found ! Deleted")
+        print(f"Duplicates found: {len(removed_item)}")
+
     def check_songs_on_startup(self):
         '''
         Check if new songs has been added to the cloud
         If yes, we download them : OsuHandler.check_download_folder will then open them
         '''
-        response_data = self.gdrive_service.files().list(q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'").execute()
+        response_data = self.get_all_files()
 
-        list_remote = [(data['id'], data['name']) for data in response_data['files']] # Get song drive id
+        list_remote = [(data['id'], data['name']) for data in response_data] # Get song drive id
         list_local  = [dir.split(" ")[0] for dir in os.listdir(OSU_SONGS_FOLDER)]
 
         # remote[0] = id, remote[1] = filename
@@ -148,7 +192,9 @@ if __name__ == "__main__":
 
         event_handler = OsuHandler(pattern, gdrive_service)
 
-        StartupCheck(gdrive_service).check_songs_on_startup()
+        startup = StartupCheck(gdrive_service)
+        startup.delete_duplicate_songs()
+        startup.check_songs_on_startup()
 
         event_handler.check_download_folder()
 
