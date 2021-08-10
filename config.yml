@@ -1,4 +1,4 @@
-download_folder: C:\Users\TBFX9659\Downloads
-osu_songs_folder: C:\Users\TBFX9659\AppData\Local\osu!\Songs
+download_folder: C:\Users\$User\Downloads
+osu_songs_folder: C:\Users\$User\AppData\Local\osu!\Songs
 google_drive_folder_id: 1TibAGp-Y_9AWQKfZoWW3zbx0yNFHidJC
-startup_apps_path: C:\Users\Utilisateur\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
+startup_apps_path: C:\Users\$User\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup

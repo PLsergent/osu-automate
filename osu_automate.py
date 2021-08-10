@@ -11,7 +11,6 @@ import os
 import psutil
 import shutil
 import time
-import sys
 
 
 class OsuHandler(PatternMatchingEventHandler):
@@ -170,16 +169,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.init:
+        '''
+        When user uses --init option this will retrieve songs folder from the the game folder and convert them into .osz
+        '''
         count = 0
         list_osu_songs  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)]
 
         for folder in list_osu_songs:
-            # Compress folders into zip files
+            
             src = os.path.join(OSU_SONGS_FOLDER, folder)
-            # Rename to .osz
             dest = os.path.join(DOWNLOAD_FOLDER, folder)
 
+            # Compress folder into zip files
             shutil.make_archive(dest, 'zip', src)
+            # Rename to .osz
             shutil.move(f"{dest}.zip", f"{dest}.osz")
             count += 1
             print(f"{count}/{len(list_osu_songs)} -- {ntpath.basename(dest)} has been exported to .osz")
