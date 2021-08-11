@@ -14,6 +14,9 @@ import time
 
 
 class OsuHandler(PatternMatchingEventHandler):
+    '''
+    Handler to track new .osz files downloaded, upload them to google drive & open them
+    '''
     def __init__(self, pattern, service):
         super().__init__(
             patterns=pattern,
@@ -25,20 +28,26 @@ class OsuHandler(PatternMatchingEventHandler):
         print("Start watching for osu! files...")
 
     def on_moved(self, event):
+        '''
+        When a file .osz is being downloaded it will trigger this function
+        '''
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
         shutil.copy(event.dest_path, ntpath.basename(event.dest_path))
         os.startfile(event.dest_path, 'open')
         self.upload_song_to_drive(ntpath.basename(event.dest_path))
         os.remove(ntpath.basename(event.dest_path))
 
-    def get_all_files(self):
+    def list_files_from_drive(self):
+        '''
+        Function used to list all the files in your google drive folder (based on the id in the config file)
+        '''
         token = ""
         results = []
         key = "nextPageToken"
         while True:
             response_data = self.gdrive_service.files().list(
                     q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'",
-                    pageSize=100,
+                    pageSize=1000,
                     pageToken=token
                 ).execute()
             results += response_data["files"]
@@ -60,6 +69,8 @@ class OsuHandler(PatternMatchingEventHandler):
             if file.endswith(".osz"):
                 print(file)
                 self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
+                # if you used --init or --no-open we're not going to open the files directly
+                # but instead move them to the osu! songs folder so you can open them later by pressing f5 in game
                 if args.init or args.no_open:
                     shutil.move(os.path.join(DOWNLOAD_FOLDER, file), os.path.join(OSU_SONGS_FOLDER, file))
                     print(f"{file} has been moved to songs folder, press f5 on osu! to get it")
@@ -67,9 +78,14 @@ class OsuHandler(PatternMatchingEventHandler):
                     os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')                   
 
     def upload_song_to_drive(self, path):
+        '''
+        Upload a song to your google drive folder
+        Happens in self.check_download_folder() or self.on_moved() methods
+        It'll check first if the song is not already in the drive to not create duplicates
+        '''
         filename = ntpath.basename(path)
 
-        response_data = self.get_all_files()
+        response_data = self.list_files_from_drive()
         list_remote = [data['name'] for data in response_data]
 
         if filename in list_remote:
@@ -88,17 +104,25 @@ class OsuHandler(PatternMatchingEventHandler):
 
     
 class StartupCheck:
+    '''
+    The class contain one main method who is going to be called when the app osu! is launched
+    The idea is to check if new songs has been added to the drive and that are not on this computer
+    Then the app will download them
+    '''
     def __init__(self, service):
         self.gdrive_service = service
 
-    def get_all_files(self):
+    def list_files_from_drive(self):
+        '''
+        Function used to list all the files in your google drive folder (based on the id in the config file)
+        '''
         token = ""
         results = []
         key = "nextPageToken"
         while True:
             response_data = self.gdrive_service.files().list(
                     q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'",
-                    pageSize=100,
+                    pageSize=1000,
                     pageToken=token
                 ).execute()
             results += response_data["files"]
@@ -108,7 +132,12 @@ class StartupCheck:
                 break
         return results
 
-    def download_songs(self, remote):
+    def download_song(self, remote):
+        '''
+        Function used to download a single from file from google drive
+        This method will be called only when the game is launched, since we only check for new song in the google drive once at the beginning
+        The methods will be called for each new songs detected in the drive
+        '''
         file_id = remote[0]
         request = self.gdrive_service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -124,7 +153,12 @@ class StartupCheck:
             f.write(fh.read())
 
     def delete_duplicate_songs(self):
-        results = self.get_all_files()
+        '''
+        Function first written as a debug purpose but kept overtime
+        It will check if there is duplicates of a song after the check_download_folder() and check_songs_on_startup() methods
+        This could be usefull in case of manuel operation in the drive folder, a forced stop of the app or a malfunction.
+        '''
+        results = self.list_files_from_drive()
 
         removed_item = []
         for item in results:
@@ -142,10 +176,10 @@ class StartupCheck:
 
     def check_songs_on_startup(self):
         '''
-        Check if new songs has been added to the cloud
+        Check if new songs has been added to the google drive
         If yes, we download them : OsuHandler.check_download_folder will then open them
         '''
-        response_data = self.get_all_files()
+        response_data = self.list_files_from_drive()
 
         list_remote = [(data['id'], data['name']) for data in response_data] # Get song drive id
         list_local  = [dir.split(" ")[0] for dir in os.listdir(OSU_SONGS_FOLDER)]
@@ -156,7 +190,7 @@ class StartupCheck:
             if song_name.split(" ")[0] not in list_local:
                 script_path = os.getcwd()
                 os.chdir(DOWNLOAD_FOLDER)
-                self.download_songs(remote)
+                self.download_song(remote)
                 print("Done")
                 os.chdir(script_path)
 
@@ -172,6 +206,11 @@ if __name__ == "__main__":
         '''
         When user uses --init option this will retrieve songs folder from the the game folder and convert them into .osz
         '''
+        print("\n*********** You choose the --init option ***********")
+        print("The app will copy all your folder from the osu! songs folder and convert them into .osz zip file")
+        print("It's better to not interrupt the app now! This may take a while...")
+        print("You can always use an other map extractor like this one: https://github.com/gameskill123/OsuMapExtractor\n")
+
         count = 0
         list_osu_songs  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)]
 
@@ -186,8 +225,22 @@ if __name__ == "__main__":
             shutil.move(f"{dest}.zip", f"{dest}.osz")
             count += 1
             print(f"{count}/{len(list_osu_songs)} -- {ntpath.basename(dest)} has been exported to .osz")
+        print("Done !")
+        print("******************************************************\n")
 
     def startApp():
+        '''
+        Once osu! is launched the app will proceed this way:
+            1. Authentication with Google Auth with the credentials provided in the credentials.json file
+            2. Check if new songs has been added to the drive, if yes download them
+            3. Check the download folder to see if new songs has been downloaded while osu was closed
+            4. Check if there is duplicates on google drive
+            5. Start the watcher, waiting for osu! songs to be downloaded
+            6. An authentication to Google Auth will be done every hour to ensure the token is still valid
+            7. If you close the game the watcher will stop
+            8. The app will then be waiting for you to launch osu!
+        '''
+
         folder = DOWNLOAD_FOLDER
         pattern = ["*.osz"]
         google_authenticator = GoogleAuth()
@@ -196,10 +249,9 @@ if __name__ == "__main__":
         event_handler = OsuHandler(pattern, gdrive_service)
 
         startup = StartupCheck(gdrive_service)
-        startup.delete_duplicate_songs()
         startup.check_songs_on_startup()
-
         event_handler.check_download_folder()
+        startup.delete_duplicate_songs()
 
         observer = Observer()
         observer.schedule(event_handler, folder, recursive=True)
@@ -227,10 +279,14 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             observer.stop()
             observer.join()
-    
+
     print("Application ready, waiting for osu! to start...")
     while True:
         time.sleep(1)
+        '''
+        Check every seconds if the game osu! is launched or not
+        Whenever you launch the game, main method startApp() will start
+        '''
         if "osu!.exe" in [p.name() for p in psutil.process_iter()]:
             print("osu! has been launched.")
             startApp()
