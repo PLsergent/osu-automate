@@ -1,5 +1,6 @@
 from __future__ import print_function
 import os.path
+import socket
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
@@ -40,4 +41,6 @@ class GoogleAuth:
 
         print('Authentication done!')
 
+        # Set timeout to 600 seconds since uploads can take a while
+        socket.setdefaulttimeout(600)
         return build('drive', 'v3', credentials=self.creds)

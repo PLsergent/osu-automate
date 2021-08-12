@@ -10,6 +10,7 @@ import ntpath
 import os
 import psutil
 import shutil
+import threading
 import time
 
 
@@ -31,11 +32,26 @@ class OsuHandler(PatternMatchingEventHandler):
         '''
         When a file .osz is being downloaded it will trigger this function
         '''
+        song_file = ntpath.basename(event.dest_path)
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
-        shutil.copy(event.dest_path, ntpath.basename(event.dest_path))
-        os.startfile(event.dest_path, 'open')
-        self.upload_song_to_drive(ntpath.basename(event.dest_path))
-        os.remove(ntpath.basename(event.dest_path))
+        shutil.copy(event.dest_path, song_file)
+        """
+        Copy the file.osz to osu-automate folder so we can open a file and upload the other
+        Ensure fast opening of the song
+        """
+
+        if args.no_open:
+            '''
+            If you used the --no-open option we're not going to open the file directly
+            but instead move it to the osu! songs folder so you can open them later by pressing f5 in game
+            '''
+            shutil.move(song_file, os.path.join(OSU_SONGS_FOLDER, song_file))
+            print(f"{song_file} has been moved to songs folder, press f5 on osu! to get it")
+        else:
+            os.startfile(song_file, 'open')
+
+        self.upload_song_to_drive(event.dest_path)
+        os.remove(event.dest_path)
 
     def list_files_from_drive(self):
         '''
@@ -68,14 +84,26 @@ class OsuHandler(PatternMatchingEventHandler):
         for file in list_download_folder:
             if file.endswith(".osz"):
                 print(file)
-                self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
-                # if you used --init or --no-open we're not going to open the files directly
-                # but instead move them to the osu! songs folder so you can open them later by pressing f5 in game
+                '''
+                If you used --init or --no-open we're not going to open the files directly
+                but instead move them to the osu! songs folder so you can open them later by pressing f5 in game
+                '''
+
+                """
+                Copy the file.osz to osu-automate folder so we can open a file and upload the other
+                Ensure fast opening of the song
+                """
                 if args.init or args.no_open:
-                    shutil.move(os.path.join(DOWNLOAD_FOLDER, file), os.path.join(OSU_SONGS_FOLDER, file))
+                    shutil.copy(os.path.join(DOWNLOAD_FOLDER, file), file)
+                    shutil.move(file, os.path.join(OSU_SONGS_FOLDER, file))
                     print(f"{file} has been moved to songs folder, press f5 on osu! to get it")
+                    self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
+                    os.remove(os.path.join(DOWNLOAD_FOLDER, file))
                 else:
-                    os.startfile(os.path.join(DOWNLOAD_FOLDER, file), 'open')                   
+                    shutil.copy(os.path.join(DOWNLOAD_FOLDER, file), file)
+                    os.startfile(file, 'open')
+                    self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
+                    os.remove(os.path.join(DOWNLOAD_FOLDER, file))
 
     def upload_song_to_drive(self, path):
         '''
