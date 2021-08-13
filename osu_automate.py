@@ -25,6 +25,7 @@ class OsuHandler(PatternMatchingEventHandler):
             ignore_directories=False,
             case_sensitive=False
         )
+        self.queue_removable_files = []
         self.gdrive_service = service
         print("Start watching for osu! files...")
 
@@ -50,8 +51,8 @@ class OsuHandler(PatternMatchingEventHandler):
         else:
             os.startfile(song_file, 'open')
 
-        self.upload_song_to_drive(event.dest_path)
-        os.remove(event.dest_path)
+        upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(event.dest_path,))
+        upload_thread.start()
 
     def list_files_from_drive(self):
         '''
@@ -97,13 +98,12 @@ class OsuHandler(PatternMatchingEventHandler):
                     shutil.copy(os.path.join(DOWNLOAD_FOLDER, file), file)
                     shutil.move(file, os.path.join(OSU_SONGS_FOLDER, file))
                     print(f"{file} has been moved to songs folder, press f5 on osu! to get it")
-                    self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
-                    os.remove(os.path.join(DOWNLOAD_FOLDER, file))
                 else:
                     shutil.copy(os.path.join(DOWNLOAD_FOLDER, file), file)
                     os.startfile(file, 'open')
-                    self.upload_song_to_drive(os.path.join(DOWNLOAD_FOLDER, file))
-                    os.remove(os.path.join(DOWNLOAD_FOLDER, file))
+
+                upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(os.path.join(DOWNLOAD_FOLDER, file),))
+                upload_thread.start()
 
     def upload_song_to_drive(self, path):
         '''
@@ -130,6 +130,7 @@ class OsuHandler(PatternMatchingEventHandler):
                                         fields='id').execute()
             print(f"{filename} uploaded to cloud.")
 
+        self.queue_removable_files.append(path)
     
 class StartupCheck:
     '''
@@ -291,6 +292,9 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
                 timer = timer + 1
+
+                if event_handler.queue_removable_files:
+                    os.remove(event_handler.queue_removable_files.pop())
 
                 if timer >= 3599:
                     google_authenticator = GoogleAuth()

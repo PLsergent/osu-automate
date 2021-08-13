@@ -5,7 +5,9 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-
+import googleapiclient
+import google_auth_httplib2
+import httplib2
 
 class GoogleAuth:
     def __init__(self):
@@ -13,7 +15,11 @@ class GoogleAuth:
         self.creds = None
         self.flow = Flow.from_client_secrets_file(
                     'credentials.json', self.scopes, redirect_uri='urn:ietf:wg:oauth:2.0:oob')
-        self.service = self.authenticate() 
+        self.service = self.authenticate()
+    
+    def build_request(self, http, *args, **kwargs):
+        new_http = google_auth_httplib2.AuthorizedHttp(self.creds, http=httplib2.Http())
+        return googleapiclient.http.HttpRequest(new_http, *args, **kwargs)
 
     def authenticate(self):
         if os.path.exists('token.json'):
@@ -43,4 +49,4 @@ class GoogleAuth:
 
         # Set timeout to 600 seconds since uploads can take a while
         socket.setdefaulttimeout(600)
-        return build('drive', 'v3', credentials=self.creds)
+        return build('drive', 'v3', requestBuilder=self.build_request, credentials=self.creds)
