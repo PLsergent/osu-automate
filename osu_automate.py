@@ -1,11 +1,10 @@
 from google_auth import GoogleAuth
 from get_config import *
+from google_utilities import GoogleFunctionUtilities
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 import argparse
-import io
 import ntpath
 import os
 import psutil
@@ -14,7 +13,7 @@ import threading
 import time
 
 
-class OsuHandler(PatternMatchingEventHandler):
+class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
     '''
     Handler to track new .osz files downloaded, upload them to google drive & open them
     '''
@@ -51,28 +50,9 @@ class OsuHandler(PatternMatchingEventHandler):
         else:
             os.startfile(song_file, 'open')
 
+        # Using a thread to upload song to drive to not block the incoming files
         upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(event.dest_path,))
         upload_thread.start()
-
-    def list_files_from_drive(self):
-        '''
-        Function used to list all the files in your google drive folder (based on the id in the config file)
-        '''
-        token = ""
-        results = []
-        key = "nextPageToken"
-        while True:
-            response_data = self.gdrive_service.files().list(
-                    q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'",
-                    pageSize=1000,
-                    pageToken=token
-                ).execute()
-            results += response_data["files"]
-            if key in response_data:
-                token = response_data[key]
-            else:
-                break
-        return results
 
     def check_download_folder(self):
         '''
@@ -102,116 +82,31 @@ class OsuHandler(PatternMatchingEventHandler):
                     shutil.copy(os.path.join(DOWNLOAD_FOLDER, file), file)
                     os.startfile(file, 'open')
 
+                # Using a thread to upload song to drive to not block the other files
                 upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(os.path.join(DOWNLOAD_FOLDER, file),))
                 upload_thread.start()
 
-    def upload_song_to_drive(self, path):
-        '''
-        Upload a song to your google drive folder
-        Happens in self.check_download_folder() or self.on_moved() methods
-        It'll check first if the song is not already in the drive to not create duplicates
-        '''
-        filename = ntpath.basename(path)
-
-        response_data = self.list_files_from_drive()
-        list_remote = [data['name'] for data in response_data]
-
-        if filename in list_remote:
-            print(f"{filename} already in cloud...")
-        else:
-            metadata = {
-                "name": filename,
-                "parents": [GOOGLE_DRIVE_FOLDER_ID] # Parent folder id
-            }
-
-            media = MediaFileUpload(path, mimetype='application/octet-stream')
-            self.gdrive_service.files().create(body=metadata,
-                                        media_body=media,
-                                        fields='id').execute()
-            print(f"{filename} uploaded to cloud.")
-
-        self.queue_removable_files.append(path)
     
-class StartupCheck:
+class StartupCheck(GoogleFunctionUtilities):
     '''
     The class contain one main method who is going to be called when the app osu! is launched
     The idea is to check if new songs has been added to the drive and that are not on this computer
     Then the app will download them
     '''
     def __init__(self, service):
+        self.queue_removable_files = []
         self.gdrive_service = service
+        print("Start up check...")
 
-    def list_files_from_drive(self):
-        '''
-        Function used to list all the files in your google drive folder (based on the id in the config file)
-        '''
-        token = ""
-        results = []
-        key = "nextPageToken"
-        while True:
-            response_data = self.gdrive_service.files().list(
-                    q=f"parents='{GOOGLE_DRIVE_FOLDER_ID}'",
-                    pageSize=1000,
-                    pageToken=token
-                ).execute()
-            results += response_data["files"]
-            if key in response_data:
-                token = response_data[key]
-            else:
-                break
-        return results
-
-    def download_song(self, remote):
-        '''
-        Function used to download a single from file from google drive
-        This method will be called only when the game is launched, since we only check for new song in the google drive once at the beginning
-        The methods will be called for each new songs detected in the drive
-        '''
-        file_id = remote[0]
-        request = self.gdrive_service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        print(f"Downloading {remote[1]}...")
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-            print("Download %d%%." % int(status.progress() * 100))
-
-        with io.open(remote[1], 'wb') as f:
-            fh.seek(0)
-            f.write(fh.read())
-
-    def delete_duplicate_songs(self):
-        '''
-        Function first written as a debug purpose but kept overtime
-        It will check if there is duplicates of a song after the check_download_folder() and check_songs_on_startup() methods
-        This could be usefull in case of manuel operation in the drive folder, a forced stop of the app or a malfunction.
-        '''
-        results = self.list_files_from_drive()
-
-        removed_item = []
-        for item in results:
-            if item in removed_item:
-                continue
-            check_list = results
-            check_list.remove(item)
-
-            for check in check_list:
-                if item['name'] == check['name']:
-                    removed_item.append(check)
-                    self.gdrive_service.files().delete(fileId=check['id']).execute()
-                    print(f"{check['name']} duplicate found ! Deleted")
-        print(f"Duplicates found: {len(removed_item)}")
-
-    def check_songs_on_startup(self):
+    def check_remote_songs_on_startup(self):
         '''
         Check if new songs has been added to the google drive
         If yes, we download them : OsuHandler.check_download_folder will then open them
         '''
         response_data = self.list_files_from_drive()
 
-        list_remote = [(data['id'], data['name']) for data in response_data] # Get song drive id
-        list_local  = [dir.split(" ")[0] for dir in os.listdir(OSU_SONGS_FOLDER)]
+        list_remote = [(data['id'], data['name']) for data in response_data] # Get songs drive id and name
+        list_local  = [dir.split(" ")[0] for dir in os.listdir(OSU_SONGS_FOLDER)] # Get local songs number
 
         # remote[0] = id, remote[1] = filename
         for remote in list_remote:
@@ -222,6 +117,31 @@ class StartupCheck:
                 self.download_song(remote)
                 print("Done")
                 os.chdir(script_path)
+    
+    def check_local_songs_on_startup(self):
+        '''
+        Check if new songs has been added to the local songs folder
+        If yes, we upload them to the drive
+        '''
+        response_data = self.list_files_from_drive()
+
+        list_remote = [data['name'].split(" ")[0] for data in response_data] # Get songs drive id and name
+        list_local  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)] # Get local songs number
+
+        # remote[0] = id, remote[1] = filename
+        for local in list_local:
+            if local.split(" ")[0] not in list_remote and local != "Failed":
+                src = os.path.join(OSU_SONGS_FOLDER, local)
+                dest = os.path.join(DOWNLOAD_FOLDER, local)
+
+                # Compress folder into zip files
+                shutil.make_archive(dest, 'zip', src)
+                # Rename to .osz
+                shutil.move(f"{dest}.zip", f"{dest}.osz")
+
+                # Using a thread to upload song to drive to not block the other files
+                upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(f'{dest}.osz',))
+                upload_thread.start()
 
 
 if __name__ == "__main__":
@@ -262,6 +182,7 @@ if __name__ == "__main__":
         Once osu! is launched the app will proceed this way:
             1. Authentication with Google Auth with the credentials provided in the credentials.json file
             2. Check if new songs has been added to the drive, if yes download them
+            2. bis Check if new songs has been added to the locally, if yes upload them
             3. Check the download folder to see if new songs has been downloaded while osu was closed
             4. Check if there is duplicates on google drive
             5. Start the watcher, waiting for osu! songs to be downloaded
@@ -278,9 +199,10 @@ if __name__ == "__main__":
         event_handler = OsuHandler(pattern, gdrive_service)
 
         startup = StartupCheck(gdrive_service)
-        startup.check_songs_on_startup()
-        event_handler.check_download_folder()
-        startup.delete_duplicate_songs()
+        startup.check_remote_songs_on_startup() # Download new from drive
+        startup.check_local_songs_on_startup()  # Upload new from local
+        event_handler.check_download_folder()   # Process .osz from download folder
+        startup.delete_duplicate_songs()        # Delete duplicates in drive
 
         observer = Observer()
         observer.schedule(event_handler, folder, recursive=True)
