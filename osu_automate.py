@@ -26,6 +26,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
         )
         self.queue_removable_files = []
         self.gdrive_service = service
+        self.thread_queue = []
         print("Start watching for osu! files...")
 
     def on_moved(self, event):
@@ -33,7 +34,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
         When a file .osz is being downloaded it will trigger this function
         '''
         song_file = ntpath.basename(event.dest_path)
-        print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
+        print(f"hey, new download: {event.dest_path}!")
         shutil.copy(event.dest_path, song_file)
         '''
         Copy the file.osz to osu-automate folder so we can open a file and upload the other
@@ -52,7 +53,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
 
         # Using a thread to upload song to drive to not block the incoming files
         upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(event.dest_path,))
-        upload_thread.start()
+        self.thread_queue.append(upload_thread)
 
     def check_download_folder(self):
         '''
@@ -64,7 +65,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
 
         for file in list_download_folder:
             if file.endswith(".osz"):
-                print(file)
+                print(f"CHECK DOWNLOAD FOLDER: {file}")
                 '''
                 If you used --init or --no-open we're not going to open the files directly
                 but instead move them to the osu! songs folder so you can open them later by pressing f5 in game
@@ -84,7 +85,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
 
                 # Using a thread to upload song to drive to not block the other files
                 upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(os.path.join(DOWNLOAD_FOLDER, file),))
-                upload_thread.start()
+                self.thread_queue.append(upload_thread)
 
     
 class StartupCheck(GoogleFunctionUtilities):
@@ -96,6 +97,7 @@ class StartupCheck(GoogleFunctionUtilities):
     def __init__(self, service):
         self.queue_removable_files = []
         self.gdrive_service = service
+        self.thread_queue = []
         print("Start up check...")
 
     def check_remote_songs_on_startup(self):
@@ -112,6 +114,7 @@ class StartupCheck(GoogleFunctionUtilities):
         for remote in list_remote:
             song_name = remote[1]
             if song_name.split(" ")[0] not in list_local:
+                print(f"NEW drive: {song_name}")
                 script_path = os.getcwd()
                 os.chdir(DOWNLOAD_FOLDER)
                 self.download_song(remote)
@@ -127,10 +130,12 @@ class StartupCheck(GoogleFunctionUtilities):
 
         list_remote = [data['name'].split(" ")[0] for data in response_data] # Get songs drive id and name
         list_local  = [dir for dir in os.listdir(OSU_SONGS_FOLDER)] # Get local songs number
+        list_download_folder  = [dir.split(" ")[0] for dir in os.listdir(DOWNLOAD_FOLDER)] # Get download folder file list to avoid duplicates
 
         # remote[0] = id, remote[1] = filename
         for local in list_local:
-            if local.split(" ")[0] not in list_remote and local != "Failed":
+            if local.split(" ")[0] not in list_remote and local.split(" ")[0] not in list_download_folder and local != "Failed":
+                print(f"NEW local: {local}")
                 src = os.path.join(OSU_SONGS_FOLDER, local)
                 dest = os.path.join(DOWNLOAD_FOLDER, local)
 
@@ -138,10 +143,6 @@ class StartupCheck(GoogleFunctionUtilities):
                 shutil.make_archive(dest, 'zip', src)
                 # Rename to .osz
                 shutil.move(f"{dest}.zip", f"{dest}.osz")
-
-                # Using a thread to upload song to drive to not block the other files
-                upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(f'{dest}.osz',))
-                upload_thread.start()
 
 
 if __name__ == "__main__":
@@ -208,7 +209,9 @@ if __name__ == "__main__":
         observer.schedule(event_handler, folder, recursive=True)
 
         observer.start()
-
+        
+        previous_thread_e = ""
+        previous_thread_s = ""
         try:
             timer = 0
             while True:
@@ -217,6 +220,20 @@ if __name__ == "__main__":
 
                 if event_handler.queue_removable_files:
                     os.remove(event_handler.queue_removable_files.pop())
+
+                '''
+                Executing uploading thread queues, ensure to execute thread one by one to avoid network overload
+                The thread function will delete the uploaded file from the list,
+                if the previous thread is deleted from the list the next one starts 
+                '''
+                if event_handler.thread_queue and previous_thread_e not in event_handler.thread_queue:
+                    event_handler.thread_queue[-1].start()
+                    previous_thread_e = event_handler.thread_queue[-1]
+
+                if startup.thread_queue and previous_thread_s not in startup.thread_queue:
+                    startup.thread_queue[-1].start()
+                    previous_thread_s = startup.thread_queue[-1]
+
 
                 if timer >= 3599:
                     google_authenticator = GoogleAuth()

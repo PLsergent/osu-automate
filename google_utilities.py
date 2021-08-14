@@ -36,6 +36,7 @@ class GoogleFunctionUtilities:
             It'll check first if the song is not already in the drive to not create duplicates
             '''
             filename = ntpath.basename(path)
+            print(f"UPLOADING START: {filename}")
 
             response_data = self.list_files_from_drive()
             list_remote = [data['name'] for data in response_data]
@@ -58,6 +59,7 @@ class GoogleFunctionUtilities:
             Since we cannot delete the song that is being access by the thread we add it to a remvoe queue to delete it later
             '''
             self.queue_removable_files.append(path)
+            self.thread_queue.pop()
 
     def download_song(self, remote):
             '''
@@ -95,7 +97,7 @@ class GoogleFunctionUtilities:
                 check_list.remove(item)
 
                 for check in check_list:
-                    if item['name'] == check['name']:
+                    if item['name'].split(" ")[0] == check['name'].split(" ")[0]:
                         removed_item.append(check)
                         self.gdrive_service.files().delete(fileId=check['id']).execute()
                         print(f"{check['name']} duplicate found ! Deleted")
