@@ -35,10 +35,10 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
         song_file = ntpath.basename(event.dest_path)
         print(f"hey, {event.src_path} has been moved to {event.dest_path}!")
         shutil.copy(event.dest_path, song_file)
-        """
+        '''
         Copy the file.osz to osu-automate folder so we can open a file and upload the other
         Ensure fast opening of the song
-        """
+        '''
 
         if args.no_open:
             '''
@@ -70,10 +70,10 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
                 but instead move them to the osu! songs folder so you can open them later by pressing f5 in game
                 '''
 
-                """
+                '''
                 Copy the file.osz to osu-automate folder so we can open a file and upload the other
                 Ensure fast opening of the song
-                """
+                '''
                 if args.init or args.no_open:
                     shutil.copy(os.path.join(DOWNLOAD_FOLDER, file), file)
                     shutil.move(file, os.path.join(OSU_SONGS_FOLDER, file))
