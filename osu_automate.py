@@ -53,7 +53,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
 
         # Using a thread to upload song to drive to not block the incoming files
         upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(event.dest_path,))
-        self.thread_queue.append(upload_thread)
+        self.thread_queue.append((song_file, upload_thread))
 
     def check_download_folder(self):
         '''
@@ -85,7 +85,7 @@ class OsuHandler(PatternMatchingEventHandler, GoogleFunctionUtilities):
 
                 # Using a thread to upload song to drive to not block the other files
                 upload_thread = threading.Thread(target=self.upload_song_to_drive, args=(os.path.join(DOWNLOAD_FOLDER, file),))
-                self.thread_queue.append(upload_thread)
+                self.thread_queue.append((file, upload_thread))
 
     
 class StartupCheck(GoogleFunctionUtilities):
@@ -227,13 +227,12 @@ if __name__ == "__main__":
                 if the previous thread is deleted from the list the next one starts 
                 '''
                 if event_handler.thread_queue and previous_thread_e not in event_handler.thread_queue:
-                    event_handler.thread_queue[-1].start()
+                    event_handler.thread_queue[-1][1].start()
                     previous_thread_e = event_handler.thread_queue[-1]
-
+                    
                 if startup.thread_queue and previous_thread_s not in startup.thread_queue:
-                    startup.thread_queue[-1].start()
+                    startup.thread_queue[-1][1].start()
                     previous_thread_s = startup.thread_queue[-1]
-
 
                 if timer >= 3599:
                     google_authenticator = GoogleAuth()

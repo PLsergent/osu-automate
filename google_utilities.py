@@ -39,9 +39,9 @@ class GoogleFunctionUtilities:
             print(f"UPLOADING START: {filename}")
 
             response_data = self.list_files_from_drive()
-            list_remote = [data['name'] for data in response_data]
+            list_remote = [data['name'].split(" ")[0] for data in response_data] # List remote song id
 
-            if filename in list_remote:
+            if filename.split(" ")[0] in list_remote:
                 print(f"{filename} already in cloud...")
             else:
                 metadata = {
