@@ -29,9 +29,8 @@ class GoogleAuth:
             if self.creds and self.creds.expired and self.creds.refresh_token:
                 self.creds.refresh(Request())
             else:
-                
                 # Tell the user to go to the authorization URL.
-                auth_url, _ = self.flow.authorization_url(prompt='consent')
+                auth_url, _ = self.flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
 
                 print('Please go to this URL: {}'.format(auth_url))
 
