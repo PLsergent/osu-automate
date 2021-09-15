@@ -21,24 +21,35 @@ class GoogleAuth:
         new_http = google_auth_httplib2.AuthorizedHttp(self.creds, http=httplib2.Http())
         return googleapiclient.http.HttpRequest(new_http, *args, **kwargs)
 
+    def display_prompt(self):
+        # Tell the user to go to the authorization URL.
+        auth_url, _ = self.flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
+
+        print('Please go to this URL: {}'.format(auth_url))
+
+        # The user will get an authorization code. This code is used to get the
+        # access token.
+        code = input('Enter the authorization code: ')
+        self.flow.fetch_token(code=code)
+        self.creds = self.flow.credentials
+
     def authenticate(self):
         if os.path.exists('token.json'):
             self.creds = Credentials.from_authorized_user_file('token.json', self.scopes)
         # If there are no (valid) credentials available, let the user log in.
         if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
+            if self.creds and self.creds.expired:
+                try:
+                    self.creds.refresh(Request())
+                except:
+                    print("Error: refresh_token expired.")
+                    self.display_prompt()
+
+                    # Save the credentials for the next run
+                    with open('token.json', 'w') as token:
+                        token.write(self.creds.to_json())
             else:
-                # Tell the user to go to the authorization URL.
-                auth_url, _ = self.flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
-
-                print('Please go to this URL: {}'.format(auth_url))
-
-                # The user will get an authorization code. This code is used to get the
-                # access token.
-                code = input('Enter the authorization code: ')
-                self.flow.fetch_token(code=code)
-                self.creds = self.flow.credentials
+                self.display_prompt()
 
             # Save the credentials for the next run
             with open('token.json', 'w') as token:
